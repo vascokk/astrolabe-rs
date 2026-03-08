@@ -17,6 +17,7 @@ pub enum SupportedLanguage {
     Go,
     C,
     Cpp,
+    Elixir,
 }
 
 impl SupportedLanguage {
@@ -29,6 +30,7 @@ impl SupportedLanguage {
             SupportedLanguage::Go => "go",
             SupportedLanguage::C => "c",
             SupportedLanguage::Cpp => "cpp",
+            SupportedLanguage::Elixir => "elixir",
         }
     }
 
@@ -41,6 +43,7 @@ impl SupportedLanguage {
             SupportedLanguage::Go => tree_sitter_go::language(),
             SupportedLanguage::C => tree_sitter_c::language(),
             SupportedLanguage::Cpp => tree_sitter_cpp::language(),
+            SupportedLanguage::Elixir => tree_sitter_elixir::language(),
         }
     }
 }
@@ -62,6 +65,7 @@ pub fn detect_language(path: &Path) -> Option<SupportedLanguage> {
         "hpp" => Some(SupportedLanguage::Cpp),
         "cc" => Some(SupportedLanguage::Cpp),
         "cxx" => Some(SupportedLanguage::Cpp),
+        "ex" | "exs" => Some(SupportedLanguage::Elixir),
         _ => None,
     }
 }
@@ -88,6 +92,7 @@ impl Indexer {
             SupportedLanguage::Go,
             SupportedLanguage::C,
             SupportedLanguage::Cpp,
+            SupportedLanguage::Elixir,
         ] {
             let mut parser = Parser::new();
             parser.set_language(&lang.tree_sitter_language())?;
@@ -213,6 +218,7 @@ impl Indexer {
             // Find definition and name nodes by capture name within this match
             let mut def_node = None;
             let mut name_node = None;
+            let mut def_capture_name = "";
 
             for cap in m.captures {
                 let cap_name = capture_names
@@ -221,6 +227,7 @@ impl Indexer {
                     .unwrap_or("");
                 if cap_name.starts_with("definition.") {
                     def_node = Some(cap.node);
+                    def_capture_name = cap_name;
                 } else if cap_name == "name" {
                     name_node = Some(cap.node);
                 }
@@ -235,7 +242,7 @@ impl Indexer {
             let qualified_name = build_qualified_name(def_node, source);
             let signature = first_line(node_text(def_node, source));
             let summary = extract_doc_comment(def_node, source);
-            let kind = capture_name_to_kind(m.pattern_index, query);
+            let kind = capture_name_to_kind_by_name(def_capture_name);
 
             let symbol = Symbol {
                 id: 0,
@@ -269,9 +276,11 @@ pub fn node_text(node: tree_sitter::Node, source: &[u8]) -> String {
 }
 
 /// Builds a qualified name by walking parent nodes upward
+/// Builds a qualified name by walking parent nodes upward
 pub fn build_qualified_name(node: tree_sitter::Node, source: &[u8]) -> String {
     let mut parts: Vec<String> = Vec::new();
     let mut current = node;
+    let mut is_elixir = false;
 
     // Walk upward collecting scope names
     while let Some(parent) = current.parent() {
@@ -279,6 +288,23 @@ pub fn build_qualified_name(node: tree_sitter::Node, source: &[u8]) -> String {
             "mod_item" | "impl_item" | "trait_item" | "class_definition" | "module" => {
                 if let Some(name_child) = parent.child_by_field_name("name") {
                     parts.push(node_text(name_child, source));
+                }
+            }
+            // Elixir: defmodule calls create scope
+            "call" => {
+                // Check if this is a defmodule call
+                if let Some(target) = parent.child(0) {
+                    if target.kind() == "identifier" && node_text(target, source) == "defmodule" {
+                        is_elixir = true;
+                        // The module name is in the arguments node (child 1)
+                        if let Some(args) = parent.child(1) {
+                            if args.kind() == "arguments" {
+                                if let Some(first_arg) = args.named_child(0) {
+                                    parts.push(node_text(first_arg, source));
+                                }
+                            }
+                        }
+                    }
                 }
             }
             _ => {}
@@ -289,11 +315,44 @@ pub fn build_qualified_name(node: tree_sitter::Node, source: &[u8]) -> String {
     parts.reverse();
 
     // Append the leaf symbol name
-    if let Some(name_node) = node.child_by_field_name("name") {
-        parts.push(node_text(name_node, source));
+    // For Elixir def/defp/defmacro/defmacrop, the name is in the first argument (a call node)
+    if node.kind() == "call" {
+        if let Some(target) = node.child(0) {
+            if target.kind() == "identifier" {
+                let target_text = node_text(target, source);
+                if target_text == "def" || target_text == "defp" || target_text == "defmacro" || target_text == "defmacrop" {
+                    is_elixir = true;
+                    // The function name is in the arguments node (child 1)
+                    if let Some(args) = node.child(1) {
+                        if args.kind() == "arguments" {
+                            if let Some(first_arg) = args.named_child(0) {
+                                // first_arg is a call node, get its target (the function name)
+                                if let Some(func_target) = first_arg.child(0) {
+                                    if func_target.kind() == "identifier" {
+                                        parts.push(node_text(func_target, source));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 
-    parts.join("::")
+    // If no name was found via the above logic, try the standard name field
+    if parts.is_empty() || (parts.len() == 1 && !is_elixir) {
+        if let Some(name_node) = node.child_by_field_name("name") {
+            parts.push(node_text(name_node, source));
+        }
+    }
+
+    // Use "." separator for Elixir, "::" for everything else
+    if is_elixir {
+        parts.join(".")
+    } else {
+        parts.join("::")
+    }
 }
 
 /// Extracts the first line of a node's source text
@@ -301,12 +360,39 @@ pub fn first_line(text: String) -> String {
     text.lines().next().unwrap_or("").to_string()
 }
 
-/// Extracts doc-comment summary from preceding comment nodes
+/// Extracts doc-comment summary from preceding comment nodes or Elixir attributes
 fn extract_doc_comment(node: tree_sitter::Node, source: &[u8]) -> String {
-    // Try to find a preceding comment
+    // Try to find a preceding sibling (comment or Elixir attribute)
     if let Some(prev_sibling) = node.prev_sibling() {
+        let prev_text = node_text(prev_sibling, source);
+        
+        // Elixir @doc or @moduledoc attributes
+        if prev_text.starts_with("@doc") || prev_text.starts_with("@moduledoc") {
+            // Extract the string content after the attribute name
+            let doc_content = if prev_text.starts_with("@moduledoc") {
+                prev_text
+                    .trim_start_matches("@moduledoc")
+                    .trim()
+            } else {
+                prev_text
+                    .trim_start_matches("@doc")
+                    .trim()
+            };
+            
+            // Remove heredoc markers (""") or regular string quotes
+            let cleaned = doc_content
+                .trim_start_matches("\"\"\"")
+                .trim_end_matches("\"\"\"")
+                .trim_start_matches('"')
+                .trim_end_matches('"')
+                .trim();
+            
+            return cleaned.lines().next().unwrap_or("").to_string();
+        }
+        
+        // Standard comment handling for other languages
         if prev_sibling.kind() == "comment" {
-            let comment_text = node_text(prev_sibling, source);
+            let comment_text = prev_text;
             // Remove comment markers and extract first line
             let cleaned = comment_text
                 .trim_start_matches("//")
@@ -320,19 +406,18 @@ fn extract_doc_comment(node: tree_sitter::Node, source: &[u8]) -> String {
 }
 
 /// Maps capture index to SymbolKind based on query pattern
-fn capture_name_to_kind(pattern_index: usize, _query: &Query) -> SymbolKind {
-    // This is a simplified mapping; in practice, you'd want to use capture names
-    // For now, we'll use a heuristic based on the pattern index
-    match pattern_index {
-        0 => SymbolKind::Function,
-        1 => SymbolKind::Struct,
-        2 => SymbolKind::Enum,
-        3 => SymbolKind::Trait,
-        4 => SymbolKind::Impl,
-        5 => SymbolKind::Module,
-        6 => SymbolKind::Class,
-        7 => SymbolKind::Interface,
-        8 => SymbolKind::Method,
+fn capture_name_to_kind_by_name(cap_name: &str) -> SymbolKind {
+    // Map capture names to symbol kinds
+    match cap_name {
+        "definition.module" => SymbolKind::Module,
+        "definition.function" => SymbolKind::Function,
+        "definition.struct" => SymbolKind::Struct,
+        "definition.enum" => SymbolKind::Enum,
+        "definition.trait" => SymbolKind::Trait,
+        "definition.impl" => SymbolKind::Impl,
+        "definition.class" => SymbolKind::Class,
+        "definition.interface" => SymbolKind::Interface,
+        "definition.method" => SymbolKind::Method,
         _ => SymbolKind::Variable,
     }
 }
@@ -347,6 +432,7 @@ fn get_query_for_language(lang: SupportedLanguage) -> &'static str {
         SupportedLanguage::Go => GO_QUERY,
         SupportedLanguage::C => C_QUERY,
         SupportedLanguage::Cpp => CPP_QUERY,
+        SupportedLanguage::Elixir => ELIXIR_QUERY,
     }
 }
 
@@ -446,6 +532,66 @@ const CPP_QUERY: &str = r#"
 
 (enum_specifier
   name: (type_identifier) @name) @definition.enum
+"#;
+
+const ELIXIR_QUERY: &str = r#"
+; Module definitions: defmodule MyApp.Foo do ... end
+(call
+  target: (identifier) @_target
+  (arguments
+    (alias) @name)
+  (#eq? @_target "defmodule")) @definition.module
+
+; Public function definitions: def foo(...) do ... end
+(call
+  target: (identifier) @_target
+  (arguments
+    (call
+      target: (identifier) @name))
+  (#eq? @_target "def")) @definition.function
+
+; Private function definitions: defp foo(...) do ... end
+(call
+  target: (identifier) @_target
+  (arguments
+    (call
+      target: (identifier) @name))
+  (#eq? @_target "defp")) @definition.function
+
+; Public macro definitions: defmacro foo(...) do ... end
+(call
+  target: (identifier) @_target
+  (arguments
+    (call
+      target: (identifier) @name))
+  (#eq? @_target "defmacro")) @definition.function
+
+; Private macro definitions: defmacrop foo(...) do ... end
+(call
+  target: (identifier) @_target
+  (arguments
+    (call
+      target: (identifier) @name))
+  (#eq? @_target "defmacrop")) @definition.function
+
+; Struct definitions: defstruct [:field1, :field2]
+(call
+  target: (identifier) @_target
+  (#eq? @_target "defstruct")) @definition.struct
+
+; Protocol definitions: defprotocol Foo do ... end
+(call
+  target: (identifier) @_target
+  (arguments
+    (alias) @name)
+  (#eq? @_target "defprotocol")) @definition.interface
+
+; Protocol implementations: defimpl Proto, for: Type do ... end
+(call
+  target: (identifier) @_target
+  (arguments
+    (alias) @name)
+  (#eq? @_target "defimpl")) @definition.impl
 "#;
 
 #[cfg(test)]

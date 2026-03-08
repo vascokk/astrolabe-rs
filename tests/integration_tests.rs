@@ -1058,3 +1058,319 @@ fn test_get_file_summary_path_traversal_blocked() {
         result
     );
 }
+
+
+// ---------------------------------------------------------------------------
+// Task 6: Integration testing and error handling for Elixir
+// ---------------------------------------------------------------------------
+
+// Task 6.1: End-to-end Elixir indexing test
+/// Requirement 7.1, 7.2, 7.3, 7.4, 7.5, 7.6, 7.7, 7.8, 9.1, 9.2
+/// Verify that Elixir files are indexed end-to-end, symbols are stored in SQLite,
+/// and retrievable via search with correct language, kind, qualified_name, and summary fields.
+#[test]
+fn test_elixir_end_to_end_indexing() {
+    let (store, temp_dir) = open_temp_store();
+    let root = temp_dir.path();
+
+    // Create a temporary Elixir file with various constructs
+    let elixir_code = r#"
+defmodule MyApp.Users do
+  @moduledoc "User management module."
+
+  defstruct [:id, :name, :email]
+
+  @doc "Creates a new user."
+  def create_user(name, email) do
+    %__MODULE__{id: 1, name: name, email: email}
+  end
+
+  @doc "Finds a user by ID."
+  def find_user(id) do
+    {:ok, id}
+  end
+
+  defp validate_email(email) do
+    String.contains?(email, "@")
+  end
+
+  defmacro is_valid_user(user) do
+    quote do
+      unquote(user).name != nil
+    end
+  end
+end
+
+defprotocol Serializable do
+  @doc "Serializes a value to JSON."
+  def to_json(value)
+end
+
+defimpl Serializable, for: MyApp.Users do
+  def to_json(user) do
+    "{\"id\": #{user.id}}"
+  end
+end
+"#;
+
+    let test_file = root.join("test_users.ex");
+    std::fs::write(&test_file, elixir_code).expect("write test file");
+
+    // Index the workspace
+    let mut indexer = Indexer::new(store.clone()).expect("create indexer");
+    let stats = indexer.index_workspace(root).expect("index_workspace");
+
+    // Verify files were indexed
+    assert!(stats.files_indexed > 0, "should index at least one file");
+    assert!(stats.symbols_total > 0, "should extract symbols");
+
+    // Verify symbols are stored and retrievable via search
+    let query = SearchQuery {
+        name_pattern: Some("create_user".to_string()),
+        kind: None,
+        language: Some("elixir".to_string()),
+        file_path: None,
+        limit: None,
+    };
+    let results = store.search(&query).expect("search for create_user");
+    assert!(!results.is_empty(), "should find create_user function");
+
+    // Verify symbol has correct fields
+    let create_user_sym = &results[0];
+    assert_eq!(create_user_sym.language, "elixir", "language should be 'elixir'");
+    assert_eq!(create_user_sym.kind, SymbolKind::Function, "kind should be Function");
+    assert!(
+        create_user_sym.qualified_name.contains("MyApp.Users.create_user"),
+        "qualified_name should use dot-separated convention: {}",
+        create_user_sym.qualified_name
+    );
+    assert!(
+        !create_user_sym.summary.is_empty(),
+        "summary should be extracted from @doc"
+    );
+    assert_eq!(
+        create_user_sym.summary, "Creates a new user.",
+        "summary should be first line of @doc"
+    );
+
+    // Verify all symbols have language == "elixir"
+    let all_elixir = store
+        .search(&SearchQuery {
+            name_pattern: None,
+            kind: None,
+            language: Some("elixir".to_string()),
+            file_path: None,
+            limit: None,
+        })
+        .expect("search all elixir");
+    assert!(!all_elixir.is_empty(), "should find Elixir symbols");
+    for sym in &all_elixir {
+        assert_eq!(sym.language, "elixir", "all symbols should have language='elixir'");
+    }
+
+    // Verify different symbol kinds are extracted
+    let functions: Vec<_> = all_elixir
+        .iter()
+        .filter(|s| s.kind == SymbolKind::Function)
+        .collect();
+    assert!(!functions.is_empty(), "should extract Function symbols");
+
+    // Verify qualified names use dot-separated convention (not ::)
+    for sym in &all_elixir {
+        assert!(
+            !sym.qualified_name.contains("::"),
+            "Elixir qualified names should use dots, not colons: {}",
+            sym.qualified_name
+        );
+    }
+}
+
+// Task 6.2: Mixed-language workspace test
+/// Requirement 2.4, 4.4, 5.4
+/// Verify that a workspace with .rs, .py, and .ex files indexes all languages correctly,
+/// Elixir symbols have language == "elixir", and no regression in existing languages.
+#[test]
+fn test_mixed_language_workspace_indexing() {
+    let (store, temp_dir) = open_temp_store();
+    let root = temp_dir.path();
+
+    // Create Rust file
+    let rust_code = r#"
+pub fn rust_function() {
+    println!("Hello from Rust");
+}
+"#;
+    std::fs::write(root.join("test.rs"), rust_code).expect("write rust file");
+
+    // Create Python file
+    let python_code = r#"
+def python_function():
+    print("Hello from Python")
+"#;
+    std::fs::write(root.join("test.py"), python_code).expect("write python file");
+
+    // Create Elixir file
+    let elixir_code = r#"
+defmodule TestModule do
+  @doc "An Elixir function."
+  def elixir_function() do
+    IO.puts("Hello from Elixir")
+  end
+end
+"#;
+    std::fs::write(root.join("test.ex"), elixir_code).expect("write elixir file");
+
+    // Index the workspace
+    let mut indexer = Indexer::new(store.clone()).expect("create indexer");
+    let stats = indexer.index_workspace(root).expect("index_workspace");
+
+    // Verify all files were indexed
+    assert_eq!(stats.files_indexed, 3, "should index all 3 files");
+
+    // Verify Rust symbols
+    let rust_query = SearchQuery {
+        name_pattern: None,
+        kind: None,
+        language: Some("rust".to_string()),
+        file_path: None,
+        limit: None,
+    };
+    let rust_symbols = store.search(&rust_query).expect("search rust");
+    assert!(!rust_symbols.is_empty(), "should find Rust symbols");
+    for sym in &rust_symbols {
+        assert_eq!(sym.language, "rust", "Rust symbols should have language='rust'");
+    }
+
+    // Verify Python symbols
+    let python_query = SearchQuery {
+        name_pattern: None,
+        kind: None,
+        language: Some("python".to_string()),
+        file_path: None,
+        limit: None,
+    };
+    let python_symbols = store.search(&python_query).expect("search python");
+    assert!(!python_symbols.is_empty(), "should find Python symbols");
+    for sym in &python_symbols {
+        assert_eq!(sym.language, "python", "Python symbols should have language='python'");
+    }
+
+    // Verify Elixir symbols
+    let elixir_query = SearchQuery {
+        name_pattern: None,
+        kind: None,
+        language: Some("elixir".to_string()),
+        file_path: None,
+        limit: None,
+    };
+    let elixir_symbols = store.search(&elixir_query).expect("search elixir");
+    assert!(!elixir_symbols.is_empty(), "should find Elixir symbols");
+    for sym in &elixir_symbols {
+        assert_eq!(sym.language, "elixir", "Elixir symbols should have language='elixir'");
+    }
+
+    // Verify no regression: each language has expected symbols
+    assert!(
+        rust_symbols.iter().any(|s| s.name == "rust_function"),
+        "should find rust_function"
+    );
+    assert!(
+        python_symbols.iter().any(|s| s.name == "python_function"),
+        "should find python_function"
+    );
+    assert!(
+        elixir_symbols.iter().any(|s| s.name == "elixir_function"),
+        "should find elixir_function"
+    );
+
+    // Verify Elixir uses dot-separated qualified names
+    for sym in &elixir_symbols {
+        assert!(
+            !sym.qualified_name.contains("::"),
+            "Elixir should use dots, not colons: {}",
+            sym.qualified_name
+        );
+    }
+}
+
+// Task 6.3: Malformed Elixir file handling test
+/// Requirement 8.1, 8.2, 8.3
+/// Verify that the indexer extracts symbols from parseable portions of malformed Elixir files,
+/// skips ERROR nodes, and continues without crashing.
+#[test]
+fn test_malformed_elixir_file_handling() {
+    let (store, temp_dir) = open_temp_store();
+    let root = temp_dir.path();
+
+    // Create a malformed Elixir file with syntax errors but some valid constructs
+    let malformed_elixir = r#"
+defmodule ValidModule do
+  @doc "This function is valid."
+  def valid_function() do
+    :ok
+  end
+
+  # This is a syntax error - missing 'do' keyword
+  def broken_function(
+
+  # But we can still define another valid function after
+  def another_valid_function() do
+    :ok
+  end
+end
+
+# Syntax error: incomplete defmodule
+defmodule IncompleteModule do
+  def incomplete_func() do
+"#;
+
+    let test_file = root.join("malformed.ex");
+    std::fs::write(&test_file, malformed_elixir).expect("write malformed file");
+
+    // Index the workspace - should not crash
+    let mut indexer = Indexer::new(store.clone()).expect("create indexer");
+    let result = indexer.index_workspace(root);
+
+    // The indexer should succeed (not panic or error out)
+    assert!(result.is_ok(), "indexer should handle malformed files gracefully");
+
+    let stats = result.expect("index_workspace");
+
+    // Should have indexed the file
+    assert!(stats.files_indexed > 0, "should attempt to index malformed file");
+
+    // Should extract at least some symbols from the parseable portions
+    let all_symbols = store
+        .search(&SearchQuery {
+            name_pattern: None,
+            kind: None,
+            language: Some("elixir".to_string()),
+            file_path: None,
+            limit: None,
+        })
+        .expect("search");
+
+    // We should extract at least the valid functions
+    assert!(
+        !all_symbols.is_empty(),
+        "should extract symbols from parseable portions"
+    );
+
+    // Verify extracted symbols are valid
+    for sym in &all_symbols {
+        assert_eq!(sym.language, "elixir", "extracted symbols should be Elixir");
+        assert!(sym.validate().is_ok(), "all symbols should be valid");
+        assert!(!sym.qualified_name.is_empty(), "qualified_name should not be empty");
+        assert!(sym.start_byte < sym.end_byte, "start_byte should be < end_byte");
+    }
+
+    // Verify we extracted at least the valid functions
+    let valid_functions: Vec<_> = all_symbols
+        .iter()
+        .filter(|s| s.name.contains("valid"))
+        .collect();
+    assert!(
+        !valid_functions.is_empty(),
+        "should extract valid functions from malformed file"
+    );
+}
