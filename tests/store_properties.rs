@@ -53,8 +53,8 @@ fn arb_symbol() -> impl Strategy<Value = Symbol> {
             signature: format!("fn {}() {{}}", qname),
             summary: format!("Summary for {}", qname),
             file_path: file,
-            start_byte: (start_line as u64) * 100,
-            end_byte: (end_line as u64) * 100 + 50,
+            start_byte: ((start_line as u64) * 100) as i64,
+            end_byte: ((end_line as u64) * 100 + 50) as i64,
             start_line,
             end_line,
         })
@@ -131,8 +131,8 @@ proptest! {
                 signature: format!("fn func_{}() {{}}", i),
                 summary: String::new(),
                 file_path: "test.rs".to_string(),
-                start_byte: i as u64 * 20,
-                end_byte: (i as u64 + 1) * 20,
+                start_byte: (i as u64 * 20) as i64,
+                end_byte: ((i as u64 + 1) * 20) as i64,
                 start_line: i as u32,
                 end_line: i as u32,
             });
@@ -261,8 +261,8 @@ proptest! {
                 signature: format!("fn func_{}() {{}}", i),
                 summary: String::new(),
                 file_path: "test.rs".to_string(),
-                start_byte: i as u64 * 20,
-                end_byte: (i as u64 + 1) * 20,
+                start_byte: (i as u64 * 20) as i64,
+                end_byte: ((i as u64 + 1) * 20) as i64,
                 start_line: i as u32,
                 end_line: i as u32,
             });

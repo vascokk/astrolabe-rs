@@ -123,7 +123,7 @@ impl SymbolStore {
         let symbols_clone: Vec<Symbol> = symbols.to_vec();
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)?
-            .as_secs();
+            .as_secs() as i64;
 
         retry_with_backoff_sync(
             move || {
@@ -133,7 +133,7 @@ impl SymbolStore {
                 // Ensure file entry exists
                 tx.execute(
                     "INSERT OR IGNORE INTO files (path, mtime, indexed_at) VALUES (?1, ?2, ?3)",
-                    params![&file_path_str, 0, now],
+                    params![&file_path_str, 0i64, now],
                 )?;
 
                 // Delete old symbols for this file
@@ -204,7 +204,7 @@ impl SymbolStore {
         let conn = self.conn.lock().unwrap();
         let path_str = path.to_string_lossy().to_string();
 
-        let mtime: Option<u64> = conn
+        let mtime: Option<i64> = conn
             .query_row(
                 "SELECT mtime FROM files WHERE path = ?1",
                 params![&path_str],
@@ -212,7 +212,7 @@ impl SymbolStore {
             )
             .optional()?;
 
-        Ok(mtime)
+        Ok(mtime.map(|m| m as u64))
     }
 
     /// Sets the mtime for a file
@@ -221,7 +221,7 @@ impl SymbolStore {
         let path_str = path.to_string_lossy().to_string();
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)?
-            .as_secs();
+            .as_secs() as i64;
 
         retry_with_backoff_sync(
             move || {
@@ -231,11 +231,11 @@ impl SymbolStore {
                 // which would wipe symbols if we used INSERT OR REPLACE
                 conn.execute(
                     "INSERT OR IGNORE INTO files (path, mtime, indexed_at) VALUES (?1, ?2, ?3)",
-                    params![&path_str, mtime, now],
+                    params![&path_str, mtime as i64, now],
                 )?;
                 conn.execute(
                     "UPDATE files SET mtime = ?1, indexed_at = ?2 WHERE path = ?3",
-                    params![mtime, now, &path_str],
+                    params![mtime as i64, now, &path_str],
                 )?;
 
                 Ok(())
@@ -521,8 +521,8 @@ mod tests {
                 signature: format!("fn func_{}() {{}}", i),
                 summary: String::new(),
                 file_path: "test.rs".to_string(),
-                start_byte: i as u64 * 20,
-                end_byte: (i as u64 + 1) * 20,
+                start_byte: i as i64 * 20,
+                end_byte: (i as i64 + 1) * 20,
                 start_line: i as u32,
                 end_line: i as u32,
             });

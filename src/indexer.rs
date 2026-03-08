@@ -5,7 +5,7 @@ use ignore::WalkBuilder;
 use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
-use tree_sitter::{Language, Parser, Query, QueryCursor, Tree};
+use tree_sitter::{Language, Parser, Query, QueryCursor, Tree, StreamingIterator};
 
 /// Supported programming languages
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -36,14 +36,14 @@ impl SupportedLanguage {
 
     pub fn tree_sitter_language(&self) -> Language {
         match self {
-            SupportedLanguage::Rust => tree_sitter_rust::language(),
-            SupportedLanguage::Python => tree_sitter_python::language(),
-            SupportedLanguage::TypeScript => tree_sitter_typescript::language_typescript(),
-            SupportedLanguage::JavaScript => tree_sitter_javascript::language(),
-            SupportedLanguage::Go => tree_sitter_go::language(),
-            SupportedLanguage::C => tree_sitter_c::language(),
-            SupportedLanguage::Cpp => tree_sitter_cpp::language(),
-            SupportedLanguage::Elixir => tree_sitter_elixir::language(),
+            SupportedLanguage::Rust => tree_sitter_rust::LANGUAGE.into(),
+            SupportedLanguage::Python => tree_sitter_python::LANGUAGE.into(),
+            SupportedLanguage::TypeScript => tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into(),
+            SupportedLanguage::JavaScript => tree_sitter_javascript::LANGUAGE.into(),
+            SupportedLanguage::Go => tree_sitter_go::LANGUAGE.into(),
+            SupportedLanguage::C => tree_sitter_c::LANGUAGE.into(),
+            SupportedLanguage::Cpp => tree_sitter_cpp::LANGUAGE.into(),
+            SupportedLanguage::Elixir => tree_sitter_elixir::LANGUAGE.into(),
         }
     }
 }
@@ -214,7 +214,8 @@ impl Indexer {
         let mut cursor = QueryCursor::new();
         let mut symbols = Vec::new();
 
-        for m in cursor.matches(query, tree.root_node(), source) {
+        let mut matches = cursor.matches(query, tree.root_node(), source);
+        while let Some(m) = matches.next() {
             // Find definition and name nodes by capture name within this match
             let mut def_node = None;
             let mut name_node = None;
@@ -223,7 +224,7 @@ impl Indexer {
             for cap in m.captures {
                 let cap_name = capture_names
                     .get(cap.index as usize)
-                    .map(|s| s.as_ref())
+                    .copied()
                     .unwrap_or("");
                 if cap_name.starts_with("definition.") {
                     def_node = Some(cap.node);
@@ -253,8 +254,8 @@ impl Indexer {
                 signature,
                 summary,
                 file_path: path.to_string(),
-                start_byte: def_node.start_byte() as u64,
-                end_byte: def_node.end_byte() as u64,
+                start_byte: def_node.start_byte() as i64,
+                end_byte: def_node.end_byte() as i64,
                 start_line: def_node.start_position().row as u32,
                 end_line: def_node.end_position().row as u32,
             };

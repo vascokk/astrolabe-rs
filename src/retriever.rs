@@ -22,7 +22,7 @@ impl SourceRetriever {
     /// * `start_byte < end_byte`
     /// * `end_byte <= file_size`
     /// * Path must be safe (no traversal)
-    pub async fn get_source(path: &Path, start_byte: u64, end_byte: u64) -> Result<String> {
+    pub async fn get_source(path: &Path, start_byte: i64, end_byte: i64) -> Result<String> {
         if start_byte >= end_byte {
             return Err(anyhow!("start_byte must be less than end_byte"));
         }
@@ -30,7 +30,7 @@ impl SourceRetriever {
         let path = path.to_path_buf();
         tokio::task::spawn_blocking(move || {
             let mut file = File::open(&path)?;
-            file.seek(SeekFrom::Start(start_byte))?;
+            file.seek(SeekFrom::Start(start_byte as u64))?;
 
             let len = (end_byte - start_byte) as usize;
             let mut buffer = vec![0u8; len];
@@ -153,7 +153,7 @@ mod tests {
         temp_file.flush()?;
 
         let path = temp_file.path();
-        let result = SourceRetriever::get_source(path, 0, content.len() as u64).await?;
+        let result = SourceRetriever::get_source(path, 0, content.len() as i64).await?;
         assert_eq!(result, content);
 
         Ok(())
@@ -296,7 +296,7 @@ mod property_tests {
             }
 
             let rt = tokio::runtime::Runtime::new().unwrap();
-            let result = rt.block_on(SourceRetriever::get_source(&path, start, end));
+            let result = rt.block_on(SourceRetriever::get_source(&path, start as i64, end as i64));
             prop_assert!(result.is_ok(), "get_source should succeed for valid range");
 
             let retrieved = result.unwrap();

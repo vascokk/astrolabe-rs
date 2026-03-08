@@ -422,17 +422,11 @@ impl AstrolabeServer {
 
 impl ServerHandler for AstrolabeServer {
     fn get_info(&self) -> ServerInfo {
-        ServerInfo {
-            capabilities: ServerCapabilities::builder()
+        ServerInfo::new(
+            ServerCapabilities::builder()
                 .enable_tools()
                 .build(),
-            server_info: Implementation {
-                name: "astrolabe-mcp".to_string(),
-                version: env!("CARGO_PKG_VERSION").to_string(),
-                ..Default::default()
-            },
-            ..Default::default()
-        }
+        )
     }
 
     async fn list_tools(
@@ -851,7 +845,7 @@ mod tests {
             summary: "Summary for test_func".to_string(),
             file_path: "test.rs".to_string(),
             start_byte: 0,
-            end_byte: content.len() as u64,
+            end_byte: content.len() as i64,
             start_line: 1,
             end_line: 3,
         };
@@ -955,7 +949,7 @@ mod tests {
             summary: "Summary for func1".to_string(),
             file_path: "test.rs".to_string(),
             start_byte: 0,
-            end_byte: content.len() as u64,
+            end_byte: content.len() as i64,
             start_line: 1,
             end_line: 1,
         };

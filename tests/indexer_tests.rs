@@ -7,6 +7,7 @@ use proptest::prelude::*;
 use std::fs;
 use std::path::Path;
 use tempfile::TempDir;
+use tree_sitter::StreamingIterator;
 
 // Property 4: Qualified name construction
 #[test]
@@ -425,8 +426,8 @@ proptest! {
             signature: "fn foo()".to_string(),
             summary: "A test function".to_string(),
             file_path: "test.rs".to_string(),
-            start_byte,
-            end_byte,
+            start_byte: start_byte.try_into().unwrap(),
+            end_byte: end_byte.try_into().unwrap(),
             start_line: start_line.min(end_line),
             end_line: end_line.max(start_line),
         };
@@ -444,7 +445,7 @@ fn test_qualified_name_correctness_elixir() -> Result<()> {
     let source_vec = b"defmodule MyApp.Accounts do\n  def create_user(attrs) do\n    :ok\n  end\nend".to_vec();
     
     let mut parser = tree_sitter::Parser::new();
-    parser.set_language(&tree_sitter_elixir::language())?;
+    parser.set_language(&tree_sitter_elixir::LANGUAGE.into())?;
     
     let tree = parser.parse(&source_vec, None).ok_or_else(|| anyhow::anyhow!("Failed to parse"))?;
     
@@ -458,16 +459,17 @@ fn test_qualified_name_correctness_elixir() -> Result<()> {
   (#eq? @_target "def")) @definition.function
 "#;
     
-    let query = tree_sitter::Query::new(&tree_sitter_elixir::language(), query_str)?;
+    let query = tree_sitter::Query::new(&tree_sitter_elixir::LANGUAGE.into(), query_str)?;
     let mut cursor = tree_sitter::QueryCursor::new();
     let source_slice: &[u8] = &source_vec;
     
     let mut found_function = false;
-    for m in cursor.matches(&query, tree.root_node(), source_slice) {
+    let mut matches = cursor.matches(&query, tree.root_node(), source_slice);
+    while let Some(m) = matches.next() {
         for cap in m.captures {
             let cap_name = query.capture_names()
                 .get(cap.index as usize)
-                .map(|s| s.as_ref())
+                .map(|s: &&str| s.as_ref())
                 .unwrap_or("");
             
             if cap_name == "definition.function" {
@@ -518,7 +520,7 @@ fn prop_elixir_qualified_names_use_dots() {
         );
         
         let mut parser = tree_sitter::Parser::new();
-        if parser.set_language(&tree_sitter_elixir::language()).is_ok() {
+        if parser.set_language(&tree_sitter_elixir::LANGUAGE.into()).is_ok() {
             let source_bytes = source.as_bytes().to_vec();
             if let Some(tree) = parser.parse(&source_bytes, None) {
                 // Query for function definitions
@@ -531,15 +533,16 @@ fn prop_elixir_qualified_names_use_dots() {
   (#eq? @_target "def")) @definition.function
 "#;
                 
-                if let Ok(query) = tree_sitter::Query::new(&tree_sitter_elixir::language(), query_str) {
+                if let Ok(query) = tree_sitter::Query::new(&tree_sitter_elixir::LANGUAGE.into(), query_str) {
                     let mut cursor = tree_sitter::QueryCursor::new();
                     let source_slice: &[u8] = &source_bytes;
                     
-                    for m in cursor.matches(&query, tree.root_node(), source_slice) {
+                    let mut matches = cursor.matches(&query, tree.root_node(), source_slice);
+                    while let Some(m) = matches.next() {
                         for cap in m.captures {
                             let cap_name = query.capture_names()
                                 .get(cap.index as usize)
-                                .map(|s| s.as_ref())
+                                .map(|s: &&str| s.as_ref())
                                 .unwrap_or("");
                             
                             if cap_name == "definition.function" {
@@ -751,8 +754,8 @@ proptest! {
             signature: "def create_user(attrs) do".to_string(),
             summary: "Creates a new user.".to_string(),
             file_path: "lib/my_app/accounts.ex".to_string(),
-            start_byte,
-            end_byte,
+            start_byte: start_byte.try_into().unwrap(),
+            end_byte: end_byte.try_into().unwrap(),
             start_line: start_line.min(end_line),
             end_line: end_line.max(start_line),
         };

@@ -54,8 +54,8 @@ fn symbol_strategy() -> impl Strategy<Value = Symbol> {
                     signature,
                     summary,
                     file_path,
-                    start_byte,
-                    end_byte: start_byte + byte_range,
+                    start_byte: start_byte as i64,
+                    end_byte: (start_byte + byte_range) as i64,
                     start_line,
                     end_line: start_line + line_range,
                 }
@@ -99,8 +99,8 @@ fn prop_symbol_field_completeness() {
         prop_assert!(!symbol.file_path.is_empty(), "file_path must be non-empty");
 
         // Assert all numeric fields are populated (they always are in Rust)
-        prop_assert!(symbol.start_byte < u64::MAX, "start_byte must be populated");
-        prop_assert!(symbol.end_byte < u64::MAX, "end_byte must be populated");
+        prop_assert!(symbol.start_byte < i64::MAX, "start_byte must be populated");
+        prop_assert!(symbol.end_byte < i64::MAX, "end_byte must be populated");
         prop_assert!(symbol.start_line < u32::MAX, "start_line must be populated");
         prop_assert!(symbol.end_line < u32::MAX, "end_line must be populated");
     });

@@ -74,8 +74,8 @@ fn arb_symbol() -> impl Strategy<Value = Symbol> {
             signature: format!("fn {}() {{}}", qname),
             summary: format!("Summary for {}", qname),
             file_path: file,
-            start_byte: (start_line as u64) * 100,
-            end_byte: (end_line as u64) * 100 + 50,
+            start_byte: ((start_line as u64) * 100) as i64,
+            end_byte: ((end_line as u64) * 100 + 50) as i64,
             start_line,
             end_line,
         })

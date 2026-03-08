@@ -12,8 +12,8 @@ pub struct Symbol {
     pub signature: String,       // e.g. "pub fn my_func(x: u32) -> String"
     pub summary: String,         // first doc-comment line or empty
     pub file_path: String,       // workspace-relative path
-    pub start_byte: u64,
-    pub end_byte: u64,
+    pub start_byte: i64,
+    pub end_byte: i64,
     pub start_line: u32,
     pub end_line: u32,
 }
