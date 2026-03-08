@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 9073db4b0a30f4a1fb941d1d27fa479c8a9520061a8b1d9cd6c93c0cffc092bb # shrinks to symbol = Symbol { id: 1, qualified_name: "a", name: "_", kind: Function, language: "rust", signature: "", summary: "", file_path: "a", start_byte: 0, end_byte: 1, start_line: 0, end_line: 0 }
