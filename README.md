@@ -8,7 +8,7 @@ Symbols and byte offsets are stored in SQLite. Source is retrieved on demand via
 
 ## Supported Languages
 
-Rust, Python, TypeScript, JavaScript, Go, C, C++
+Rust, Python, TypeScript, JavaScript, Go, C, C++, Elixir
 
 ## Why?
 
