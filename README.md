@@ -1,5 +1,7 @@
 # astrolabe-mcp
 
+> Inspired by [jcodemunch-mcp](https://github.com/jgravelle/jcodemunch-mcp) by [@jgravelle](https://github.com/jgravelle).
+
 A Rust MCP server that indexes your codebase using tree-sitter AST parsing and exposes tools for AI coding assistants to discover and retrieve code by symbol — without reading entire files.
 
 Symbols and byte offsets are stored in SQLite. Source is retrieved on demand via O(1) file seeking, so memory usage stays flat regardless of repository size.
@@ -10,7 +12,7 @@ Rust, Python, TypeScript, JavaScript, Go, C, C++
 
 ## Why?
 
-AI coding assistants like Kiro don't maintain a persistent index of your codebase. Without a tool like this, they operate reactively — reading files on demand, running regex searches, and piecing together structure from raw source. This works, but it's slow and imprecise on large repos.
+AI coding assistants like Kiro don't maintain a persistent index of your codebase. Without a tool like this, they operate reactively — reading files on demand, running regex searches, and piecing together structure from raw source. 
 
 With astrolabe-mcp, the codebase is indexed once at startup into SQLite. The AI can then ask structured questions like "find all functions named `handle_*` in Rust files" and get an instant, precise answer — without reading a single source file. It's the difference between grep-ing through code and querying a database.
 
