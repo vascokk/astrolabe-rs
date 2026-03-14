@@ -127,8 +127,8 @@ I need to find all struct definitions in Rust files, but only show me the name, 
 
 ### Baseline Run (No Skill)
 
-| Question | Credits Used | Cumulative Credits | Notes |
-|----------|--------------|-------------------|-------|
+| Question | Response Tokens | Cumulative Tokens | Notes |
+|----------|-----------------|-------------------|-------|
 | Q1 | | | |
 | Q2 | | | |
 | Q3 | | | |
@@ -143,8 +143,8 @@ I need to find all struct definitions in Rust files, but only show me the name, 
 
 ### Skill Run (With astrolabe-mcp Skill)
 
-| Question | Credits Used | Cumulative Credits | Notes |
-|----------|--------------|-------------------|-------|
+| Question | Response Tokens | Cumulative Tokens | Notes |
+|----------|-----------------|-------------------|-------|
 | Q1 | | | |
 | Q2 | | | |
 | Q3 | | | |
@@ -159,11 +159,11 @@ I need to find all struct definitions in Rust files, but only show me the name, 
 
 ## Analysis
 
-**Baseline Total Credits:** ___________
+**Baseline Total Tokens:** ___________
 
-**Skill Run Total Credits:** ___________
+**Skill Run Total Tokens:** ___________
 
-**Credits Saved:** ___________
+**Tokens Saved:** ___________
 
 **Percentage Savings:** ___________
 
